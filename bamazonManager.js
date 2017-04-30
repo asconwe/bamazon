@@ -19,7 +19,10 @@ connection.connect(function (err) {
         type: 'list',
         message: 'What would you like to do?',
         choices: menu
-    }]).then(function (answer) { 
-        answer.managerAction();
+    }]).then(function (answer) {
+        // Bind this to the open connection, so the end method can be passed as a callback
+        connectionEnd = connection.end;
+        boundConnectionEnd = connectionEnd.bind(connection)
+        answer.managerAction(boundConnectionEnd);
     });
 });

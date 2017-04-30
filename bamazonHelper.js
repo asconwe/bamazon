@@ -3,40 +3,50 @@ var inquirer = require('inquirer');
 // MySql connection credentials stored in .credentials.js - ignored by git
 var connection = require('./credentials.js');
 
+// Bamazon helper
 var bh = {
     validateInt: function validateInt(input) {
         return !isNaN(parseInt(input));
     },
 
     selectProducts: function selectProducts(modifier, callback) {
-        var queryString = 'SELECT * FROM products';
+        var queryString = 'SELECT * FROM products ';
         if (modifier !== null) {
             queryString += modifier;
         }
-        connection.query(queryString, function (err, data) {
+        connection.query(queryString, function (err, res) {
             if (err) throw err;
             callback(res);
         });
     },
 
-    logProducts: function logProducts(res) {
-        res.forEach(function (value) {
-            console.log(value.item_id, '-', value.product_name, '-', '$' + value.price, '-', 'Stock:', value.stock);
-        })
+    logProducts: function logProducts(res, callback) {
+        if (res.length < 1) {
+            console.log('No Items match your search');
+        } else {
+            res.forEach(function (value) {
+                console.log(value.item_id + ' - ' + value.product_name + ' - ' + '$' + value.price + ' - ' + 'Stock: ' + value.stock);
+            })
+        }
+        callback();
     },
 
-    viewProducts: function viewProducts() {
-        selectProducts(null, logProducts)
+    viewProducts: function viewProducts(callback) {
+        bh.selectProducts(null, function (res) { 
+            bh.logProducts(res, callback);
+        });
     },
 
-    viewLowInventory: function viewLowInventory() {
-        selectProducts('WHERE stock < 6', logProducts);
+    viewLowInventory: function viewLowInventory(callback) {
+        bh.selectProducts('WHERE stock < 6', function (res) { 
+            bh.logProducts(res, callback);
+        });
     },
 
-    addToInventory: function addToInventory() { 
-        selectProducts(null, function (res) { 
+    addToInventory: function addToInventory(callback) { 
+        bh.selectProducts(null, function (res) { 
             var allProductsFormatted = [];
-            res.forEach(function (vaue) { 
+            res.forEach(function (value) { 
                 allProductsFormatted.push({ name: value.item_id + ' - ' + value.product_name + ' - ' + '$' + value.price + ' - ' + 'Stock: ' + value.stock, value: value.item_id });
             });
             inquirer.prompt([{
@@ -47,25 +57,23 @@ var bh = {
             }, {
                 name: 'quantity',
                 message: 'How many?',
-                validate: validateInt
+                validate: bh.validateInt
             }]).then(function (answers) {
                 // Get current stock of desired item
-                selectProducts('WHERE item_id = ' + answers.item[0], function (err, data) { 
-                    if (err) throw err;
+                bh.selectProducts('WHERE item_id = ' + answers.item, function (res) { 
                     var quantity = parseInt(answers.quantity);
-                    var newStock = data[0].stock + quantity;
-                    connection.query('UPDATE products SET stock = ? WHERE item_id = ?', [newStock, answers.item[0]] , function (err, data) { 
+                    var newStock = res[0].stock + quantity;
+                    connection.query('UPDATE products SET stock = ? WHERE item_id = ?', [newStock, answers.item] , function (err, data) { 
                         if (err) throw err;
-                        console.log('Stock added:', answers.item[1] + ', Quantity:', quantity);
-                        // Close connection to mysql Bamazon server
-                        connection.end();
+                        console.log('Stock added:', res[0].product_name + ', Quantity:', quantity);
+                        callback();
                     });
                 });
             });
         });      
     },
 
-    addNewProduct: function addNewProduct() { 
+    addNewProduct: function addNewProduct(callback) { 
         connection.query('SELECT DISTINCT department_name FROM products', function (err, data) { 
             if (err) throw err;
             var departments = [];
@@ -87,7 +95,6 @@ var bh = {
                 choices: departments
             }, {
                 when: function (answers) { 
-                    console.log(answers.department);
                     return (answers.department === 'New department')    
                 },
                 name: 'department',
@@ -99,12 +106,23 @@ var bh = {
                 inquirer.prompt([{
                     name: 'confirm',
                     type: 'confirm',
-                    message: 'Add the following product now? \n' + answers,
+                    message: 'Add the following product now? \n' + answers.name + ' $' + answers.price + ', stock: ' + answers.stock + ': ' + answers.department,
                 }]).then(function (confirm) { 
                     if (confirm.confirm) { 
-                        connection.query('INSERT INTO products (product_name, price, department_name, stock')
+                        connection.query('INSERT INTO products SET ?',
+                            {
+                                product_name: answers.name,
+                                price: answers.price,
+                                department_name: answers.department,
+                                stock: answers.stock
+                            }, function (err, data) { 
+                                if (err) throw err;
+                                console.log('Product added');
+                                callback();
+                            });
                     } else {
                         console.log('Process canceled');
+                        callback();
                     }
                 });
             });
